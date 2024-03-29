@@ -211,3 +211,4 @@ variant tcmalloc \
 
 # Exclude beta/rc releases from livecheck
 github.livecheck.regex {([0-9\.]+)}
+

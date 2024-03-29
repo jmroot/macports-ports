@@ -118,3 +118,4 @@ livecheck.regex             "backends-(\\d+(?:\\.\\d+)*)${extract.suffix}"
 notes "\
     Edit ${prefix}/etc/sane.d/dll.conf to enable only\
     specific backends for a noticeable performance gain."
+

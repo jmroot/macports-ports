@@ -136,3 +136,4 @@ if {${os.major} >= 11 && ${os.platform} eq "darwin"} {
 livecheck.type          regex
 livecheck.url           http://ftp.xemacs.org/pub/xemacs/xemacs-21.4
 livecheck.regex         ${name}-(\[0-9.\]+)${extract.suffix}
+

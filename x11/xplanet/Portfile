@@ -71,3 +71,4 @@ variant pnm description "Enable PNM support" {
 	configure.args-delete	--without-pnm
 	configure.args-append	--with-pnm
 }
+

@@ -72,3 +72,4 @@ configure.args-append \
                     -DWITH_PODOFO=YES
 
 livecheck.regex     "${name}-(\\d+\\.\\d*\[02468\](?:\\.\\d+)*)${extract.suffix}"
+

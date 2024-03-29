@@ -93,3 +93,4 @@ destroot {
 
 livecheck.type      sourceforge
 livecheck.regex     "supertuxkart-((\\d+(\\.)*)+)-src\\.tar\\.xz"
+

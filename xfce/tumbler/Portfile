@@ -47,3 +47,4 @@ depends_lib-append \
 
 configure.args-append \
                         PKG_CONFIG_PATH=${prefix}/lib/pkgconfig
+

@@ -247,3 +247,4 @@ pre-test {
 variant testing description {Build executables and download data to be able to run tests.} {
     configure.args-replace  -DBUILD_TESTING:BOOL=OFF -DBUILD_TESTING:BOOL=ON
 }
+

@@ -41,3 +41,4 @@ depends_lib         path:include/turbojpeg.h:libjpeg-turbo \
                     port:libmcrypt \
                     port:libiconv \
                     port:zlib
+

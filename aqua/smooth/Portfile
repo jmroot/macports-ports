@@ -41,3 +41,4 @@ patchfiles          patch-fix-libxml2-includes.diff \
                     patch-fix-dylib-install-path.diff
 
 makefile.prefix_name    prefix
+

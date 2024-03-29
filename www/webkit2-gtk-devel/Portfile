@@ -264,3 +264,4 @@ behaviour from WebKitAvailability.h.
 livecheck.type      regex
 livecheck.url       http://webkitgtk.org/releases/
 livecheck.regex     "webkitgtk-(\\d+(?:\\.\\d+)+)"
+

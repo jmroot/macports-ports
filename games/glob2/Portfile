@@ -107,3 +107,4 @@ post-destroot {
 livecheck.type      regex
 livecheck.url       ${homepage}/wiki/Download_and_Install
 livecheck.regex     /${name}-(\[0-9.\]+)${extract.suffix}
+

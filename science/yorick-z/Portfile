@@ -38,3 +38,4 @@ universal_variant   no
 configure.pre_args
 configure.args      --yorick=${prefix}/bin/yorick \
                     --no-avcodec
+

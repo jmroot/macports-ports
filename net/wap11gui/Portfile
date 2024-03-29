@@ -61,3 +61,4 @@ configure.args	--with-extra-includes='${prefix}/include' \
 				--disable-debug
 configure.cflags-append	'-I${prefix}/include'
 configure.cxxflags-append '-I${prefix}/include'
+

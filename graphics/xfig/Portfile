@@ -66,3 +66,4 @@ test.target         check
 livecheck.type      regex
 livecheck.url       https://sourceforge.net/projects/mcj/rss
 livecheck.regex     ${name}-(\[0-9.a-z\]+)${extract.suffix}
+

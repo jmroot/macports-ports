@@ -33,3 +33,4 @@ build.args      CC="${configure.cc} [get_canonical_archflags]"
 destroot {
     xinstall -m 775 ${worksrcpath}/tiv ${destroot}${prefix}/bin
 }
+

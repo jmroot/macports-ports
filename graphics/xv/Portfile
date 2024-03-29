@@ -82,3 +82,4 @@ build.post_args         PREFIX='${prefix}' \
 destroot.post_args      PREFIX='${prefix}' DESTDIR='${destroot}'
 
 livecheck.type          none
+

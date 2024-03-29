@@ -46,3 +46,4 @@ post-destroot {
    ln -s ${swfs_dir}/tessel_loader.swf ${destroot}${swfs_dir}/default_loader.swf
    ln -s ${swfs_dir}/simple_viewer.swf ${destroot}${swfs_dir}/default_viewer.swf
 }
+

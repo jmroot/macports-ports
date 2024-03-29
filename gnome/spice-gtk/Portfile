@@ -87,3 +87,4 @@ if {![catch {set result [active_variants gtk3 quartz x11]}] && $result} {
 } elseif {![variant_isset quartz]} {
     default_variants +x11
 }
+

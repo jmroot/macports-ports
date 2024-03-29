@@ -86,3 +86,4 @@ test.cmd            ctest --output-on-failure
 livecheck.type      regex
 livecheck.url       ${homepage}download/stable/src
 livecheck.regex     "swipl-(\\d+\\.\\d+\\.\\d+).tar.gz"
+

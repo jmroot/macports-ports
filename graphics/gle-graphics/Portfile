@@ -108,3 +108,4 @@ subport QGLE {
         copy ${worksrcpath}/build/bin/QGLE.app ${destroot}${applications_dir}
     }
 }
+

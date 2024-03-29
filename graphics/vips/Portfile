@@ -59,3 +59,4 @@ depends_lib         path:lib/pkgconfig/glib-2.0.pc:glib2 \
 
 configure.post_args-append \
                    -Dintrospection=enabled
+

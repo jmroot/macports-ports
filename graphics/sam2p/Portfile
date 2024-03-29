@@ -46,3 +46,4 @@ destroot {
         file copy ${worksrcpath}/${d} ${destroot}${prefix}/share/${name}
     }
 }
+

@@ -50,3 +50,4 @@ post-destroot {
                                 move ${appdir}/Contents/MacOS/scantailor-universal ${appdir}/Contents/MacOS/ScanTailor
                                 move ${appdir}/Contents/Resources/ScanTailorUniversal.icns ${appdir}/Contents/Resources/ScanTailor.icns
 }
+

@@ -91,3 +91,4 @@ variant no_server {
     depends_run-delete  path:bin/perl:perl5
     patchfiles-append   patch-no_server.diff
 }
+

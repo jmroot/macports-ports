@@ -119,3 +119,4 @@ platform powerpc {
 
 # Leopard build, at least, fails without c++11
 compiler.cxx_standard   2011
+

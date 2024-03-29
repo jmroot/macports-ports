@@ -63,3 +63,4 @@ if {${universal_possible} && [variant_isset universal]} {
         reinplace "s|@APPLICATIONS_DIR@|${applications_dir}|g" ${destroot}${prefix}/bin/vncviewer
     }
 }
+

@@ -75,3 +75,4 @@ app.name                SuperTux
 app.identifier          com.googlecode.supertux2
 app.executable          supertux2
 app.use_launch_script   yes
+

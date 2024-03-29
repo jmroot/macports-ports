@@ -53,3 +53,4 @@ app.icon ${filespath}/xmoto.png
 
 livecheck.type  regex
 livecheck.regex {XMoto ([\d.]+) released}
+

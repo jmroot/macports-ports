@@ -76,3 +76,4 @@ if {${os.platform} eq "darwin" && ${os.major} < 11} {
         return -code error "incompatible OS X version"
     }
 }
+

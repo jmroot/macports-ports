@@ -167,3 +167,4 @@ subport synfigstudio {
 }
 
 distname            ${subport}-${version}
+

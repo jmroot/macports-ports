@@ -199,3 +199,4 @@ variant psql description {Enable PostgreSQL 8.3 SQL Driver} {
 }
 
 livecheck.type      none
+

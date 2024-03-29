@@ -185,3 +185,4 @@ if {[variant_isset mysql_check]} {
 livecheck.type      regex
 livecheck.url       ${homepage}
 livecheck.regex     "digiKam (\\d+(?:\\.\\d+)*) is released"
+

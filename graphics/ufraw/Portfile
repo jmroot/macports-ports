@@ -90,3 +90,4 @@ post-destroot {
 compiler.blacklist-append llvm-gcc-4.2 macports-llvm-gcc-4.2
 
 livecheck.regex     "${name}-(\\d+(?:\\.\\d+)*)"
+
