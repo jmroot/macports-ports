@@ -26,10 +26,25 @@ checksums           rmd160  3381ba95fdc5b807b82516253dca029a4cf9c45f \
 
 # System's tar on at least macOS Ventura is broken
 # See: https://trac.macports.org/ticket/67336
-pre-install {
-    if {[getuid] == 0 && [file exists /usr/sbin/purge]} {
-        system "/usr/sbin/purge"
-    }
+#pre-install {
+#    if {[getuid] == 0 && [file exists /usr/sbin/purge]} {
+#        system "/usr/sbin/purge"
+#    }
+#}
+
+pre-build {
+    system -W $workpath "${configure.cc} ${configure.optflags} -o findholes ${filespath}/findholes.c"
+}
+
+post-destroot {
+    clonefile ${destroot}${prefix}/lib/libpari-gmp.dylib ${workpath}/libpari-gmp.dylib
+    system -W $workpath "./findholes ${destroot}${prefix}/lib/libpari-gmp.dylib"
+    system -W $workpath "./findholes ${workpath}/libpari-gmp.dylib"
+    ui_msg "destroot libpari-gmp.dylib is binary? [fileIsBinary ${destroot}${prefix}/lib/libpari-gmp.dylib]"
+}
+
+post-activate {
+    ui_msg "activated libpari-gmp.dylib is binary? [fileIsBinary ${prefix}/lib/libpari-gmp.dylib]"
 }
 
 depends_lib         port:gmp \
