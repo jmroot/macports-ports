@@ -45,3 +45,4 @@ post-destroot {
 livecheck.type      regex
 livecheck.url       ${homepage}
 livecheck.regex     "paq(8\[\\w\]+)${extract.suffix}"
+
