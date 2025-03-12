@@ -1,0 +1,200 @@
+name: "index & mirror changed ports"
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '.github/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Index and mirror
+    timeout-minutes: 30
+    concurrency:
+      group: mirror-${{ github.ref }}
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout ports
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: ports
+          show-progress: false
+      - name: Checkout mpbb
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          repository: macports/mpbb
+          branch: remote-db
+          path: mpbb
+          show-progress: false
+      - name: Checkout contrib
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          repository: macports/contrib
+          branch: master
+          path: contrib
+          show-progress: false
+      - name: Bootstrap MacPorts
+        run: . ports/.github/workflows/bootstrap.sh
+
+      - name: Determine list of changed ports
+        id: portlist
+        env:
+          MIRROR_DB_URL: ${{ secrets.MIRROR_DB_URL }}
+          MIRROR_DB_CREDENTIALS: ${{ secrets.MIRROR_DB_CREDENTIALS }}
+        run: |
+          set -eu
+          # Add  the MacPorts paths to $PATH for the subsequent steps.
+          echo "${PWD}/mpbb" >> $GITHUB_PATH
+          echo "/opt/local/bin" >> $GITHUB_PATH
+          echo "/opt/local/sbin" >> $GITHUB_PATH
+
+          # Get timestamp of last commit mirrored.
+          LAST_TIME="$(curl -u "$MIRROR_DB_CREDENTIALS" "${MIRROR_DB_URL}GET/mirror.last_time?type=txt")"
+          if [ -z "$LAST_TIME" ]; then
+              LAST_TIME="3 days ago"
+          fi
+          # Deepen clone to contain all commits since last timestamp.
+          git -C ports fetch --shallow-since="$LAST_TIME"
+
+          portlist=$( \
+            git -C ports/ diff --name-only --diff-filter=AM "HEAD@{$LAST_TIME}..HEAD" \
+              | grep -E '^[^._/][^/]*/[^/]+/Portfile$' \
+              | cut -d/ -f2 \
+              | sort -u \
+              | tr '\n' ' ' \
+              | sed 's/ $//')
+
+          echo "$portlist"
+          echo "portlist=$portlist" >> $GITHUB_OUTPUT
+
+      - name: Update PortIndex files
+        env:
+          OLDEST_DARWIN: 8
+          NEWEST_DARWIN: 24
+          MIRROR_DB_URL: ${{ secrets.MIRROR_DB_URL }}
+          MIRROR_DB_CREDENTIALS: ${{ secrets.MIRROR_DB_CREDENTIALS }}
+          MIRROR_UPLOAD_URL: ${{ secrets.MIRROR_UPLOAD_URL }}
+          MIRROR_UPLOAD_CREDENTIALS: ${{ secrets.MIRROR_UPLOAD_CREDENTIALS }}
+        run: |
+          set -eu
+
+          # Start at last mirrored commit so we can get newer timestamps on only the changed files.
+          LAST_COMMIT="$(curl -u "$MIRROR_DB_CREDENTIALS" "${MIRROR_DB_URL}GET/mirror.last_commit?type=txt")"
+
+          mkdir -p tarball
+          if [ -n "$LAST_COMMIT" ]; then
+              if curl -f -O -u "$MIRROR_UPLOAD_CREDENTIALS" "${MIRROR_UPLOAD_URL}portindex-${LAST_COMMIT}.tar.bz2"; then
+                  tar -C tarball -xjf "portindex-${LAST_COMMIT}.tar.bz2"
+                  git -C ports checkout "$LAST_COMMIT"
+                  rsync -rlt tarball/ports/ ports
+                  git -C ports checkout HEAD
+              fi
+          fi
+          mkdir -p tarball/ports
+          rsync -rltC --delete ports/ tarball/ports
+
+          OS_MAJOR_LIST="$(seq "$OLDEST_DARWIN" "$NEWEST_DARWIN")"
+          CURRENT_COMMIT="$(git -C ports rev-parse HEAD)"
+          for CUR_MAJOR in $OS_MAJOR_LIST; do
+              ARCHS="i386"
+              if [ "$CUR_MAJOR" -ge 20 ]; then
+                ARCHS="arm $ARCHS"
+              elif [ "$CUR_MAJOR" -le 9 ]; then
+                ARCHS="$ARCHS powerpc"
+              fi
+              for CUR_ARCH in $ARCHS; do
+                INDEXDIR="tarball/PortIndex_darwin_${CUR_MAJOR}_${CUR_ARCH}"
+                mkdir -p "$INDEXDIR"
+                portindex -p "macosx_${CUR_MAJOR}_${CUR_ARCH}" -o "$INDEXDIR" ports
+                port-tclsh contrib/portindex2json/portindex2json.tcl "${INDEXDIR}/PortIndex" --info commit="${CURRENT_COMMIT}" > "${INDEXDIR}/PortIndex.json"
+              done
+          done
+
+          OS_MAJOR="$(uname -r | cut -f 1 -d .)"
+          OS_ARCH="$(uname -p)"
+          cp "tarball/PortIndex_darwin_${OS_MAJOR}_${OS_ARCH}/PortIndex" ports
+
+      - name: Determine list of subports from portlist
+        id: subportlist
+        run: |
+          set -eu
+
+          echo "#### Changed Ports" >> $GITHUB_STEP_SUMMARY
+
+          subportlist=""
+          echo "::group::Listing subports"
+          new_subports=$(mpbb \
+              --work-dir /tmp/mpbb \
+              list-subports \
+              --archive-site= \
+              --archive-site-private= \
+              --include-deps=no \
+              $portlist \
+              | tr '\n' ' ')
+          for subport in $new_subports; do
+            echo "$subport"
+            echo "- ${subport}" >> $GITHUB_STEP_SUMMARY
+            subportlist="$subportlist $subport"
+          done
+          echo "::endgroup::"
+
+          echo "subportlist=${subportlist}" >> $GITHUB_OUTPUT
+        env:
+          portlist: ${{ steps.portlist.outputs.portlist }}
+
+      - name: Mirror all changed subports
+        env:
+          MIRROR_DB_URL: ${{ secrets.MIRROR_DB_URL }}
+          MIRROR_DB_CREDENTIALS: ${{ secrets.MIRROR_DB_CREDENTIALS }}
+          MIRROR_SSH_HOST: ${{ secrets.MIRROR_SSH_HOST }}
+          MIRROR_SSH_HOSTKEY: ${{ secrets.MIRROR_SSH_HOSTKEY }}
+          MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
+          subportlist: ${{ steps.subportlist.outputs.subportlist }}
+        run: |
+          set -eu
+
+          mkdir -p distfiles
+          sudo rm -rf /opt/local/var/macports/distfiles
+          sudo ln -s "$(realpath distfiles)" /opt/local/var/macports/
+          port-tclsh mpbb/tools/mirror-multi.tcl -r "$MIRROR_DB_URL" "$MIRROR_DB_CREDENTIALS" $subportlist
+          sudo chmod -R a+rX distfiles
+
+          echo "$MIRROR_SSH_KEY" > ssh_key
+          echo "$MIRROR_SSH_HOSTKEY" > ssh_known_hosts
+          export RSYNC_RSH="ssh -i ssh_key -oUserKnownHostsFile=ssh_known_hosts -p 23"
+
+          rsync -av --ignore-existing distfiles/ "${MIRROR_SSH_HOST}:pub/distfiles"
+
+          port-tclsh mpbb/tools/update-mirrordb.tcl "$MIRROR_DB_URL" "$MIRROR_DB_CREDENTIALS" mirror_done portfile_hash_cache portname_portfile_map
+
+      - name: Upload ports tree and PortIndex
+        env:
+          MIRROR_DB_URL: ${{ secrets.MIRROR_DB_URL }}
+          MIRROR_DB_CREDENTIALS: ${{ secrets.MIRROR_DB_CREDENTIALS }}
+          MIRROR_SSH_HOST: ${{ secrets.MIRROR_SSH_HOST }}
+          MIRROR_SSH_HOSTKEY: ${{ secrets.MIRROR_SSH_HOSTKEY }}
+          MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
+        run: |
+          set -eu
+
+          echo "$MIRROR_SSH_KEY" > ssh_key
+          echo "$MIRROR_SSH_HOSTKEY" > ssh_known_hosts
+          export RSYNC_RSH="ssh -i ssh_key -oUserKnownHostsFile=ssh_known_hosts -p 23"
+
+          CURRENT_COMMIT="$(git -C ports rev-parse HEAD)"
+          CURRENT_COMMIT_TIME="$(git -C ports show -s --format=%cI HEAD)"
+
+          chmod -R a+rX tarball
+          tar -C tarball -cjf "portindex-${CURRENT_COMMIT}.tar.bz2" .
+          rsync -av --ignore-existing "portindex-${CURRENT_COMMIT}.tar.bz2" "${MIRROR_SSH_HOST}:"
+
+          curl -u "$MIRROR_DB_CREDENTIALS" "${MIRROR_DB_URL}SET/mirror.last_time/${CURRENT_COMMIT_TIME}"
+          curl -u "$MIRROR_DB_CREDENTIALS" "${MIRROR_DB_URL}SET/mirror.last_commit/${CURRENT_COMMIT}"
