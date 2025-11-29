@@ -418,6 +418,9 @@ platform darwin {
     if { ${os.major} > 22 } {
         patchfiles-append patch-webkit-remove-wtf_ceil-workaround.diff
     }
+    if {${os.major} >= 25} {
+        patchfiles-append no-AGL.patch
+    }
 }
 
 # Support aarch64
