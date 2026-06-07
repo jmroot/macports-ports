@@ -14,18 +14,11 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: ${{ matrix.os }}
-    timeout-minutes: 0
-    concurrency:
-      cancel-in-progress: true
-      group: ${{ github.ref }}/${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-14, macos-15, macos-26]
-
+  get-ports:
+    name: Get changed ports
+    runs-on: macos-latest
+    outputs:
+      ports: ${{ steps.subportlist.outputs.subportlist }}
     steps:
       - name: Checkout ports
         uses: actions/checkout@v6
@@ -52,18 +45,15 @@ jobs:
         env:
             MP_CI_RELEASE: ${{ vars.MP_CI_RELEASE }}
         run: . ports/.github/workflows/bootstrap.sh mpbb
-      - name: Determine list of changed ports
-        id: portlist
+      - name: Determine list of changed port directories
+        id: portdirs
         run: |
-          set -eu
-          # Add getopt, mpbb and the MacPorts paths to $PATH for the subsequent
-          # steps.
           echo "/opt/mports/bin" >> $GITHUB_PATH
           echo "${PWD}/mpbb" >> $GITHUB_PATH
           echo "/opt/local/bin" >> $GITHUB_PATH
           echo "/opt/local/sbin" >> $GITHUB_PATH
 
-          portlist=$( \
+          portdirs=$( \
             git -C ports/ diff --name-only --diff-filter=AM macports/master...@ \
               | grep -E '^[^._/][^/]*/[^/]+/(Portfile$|files/)' \
               | cut -d/ -f2 \
@@ -71,10 +61,10 @@ jobs:
               | tr '\n' ' ' \
               | sed 's/ $//')
 
-          echo "$portlist"
-          echo "portlist=$portlist" >> $GITHUB_OUTPUT
+          echo "$portdirs"
+          echo "portdirs=$portdirs" >> $GITHUB_OUTPUT
 
-      - name: Determine list of subports from portlist
+      - name: Determine list of subports
         id: subportlist
         run: |
           set -eu
@@ -89,7 +79,7 @@ jobs:
               --archive-site= \
               --archive-site-private= \
               --include-deps=no \
-              $portlist \
+              $portdirs \
               | tr '\n' ' ')
           for subport in $new_subports; do
             echo "$subport"
@@ -97,175 +87,219 @@ jobs:
             subportlist="$subportlist $subport"
           done
           echo "::endgroup::"
+          echo "subportlist=${subportlist}"
+          subportlist_json="$(echo "package require json::write ;\
+            puts [::json::write::array-strings {*}{$subportlist}]" | port-tclsh)"
+          echo "JSON subportlist=${subportlist_json}"
 
-          echo "subportlist=${subportlist}" >> $GITHUB_OUTPUT
+          echo "subportlist=${subportlist_json}" >> $GITHUB_OUTPUT
         env:
-          portlist: ${{ steps.portlist.outputs.portlist }}
-      - name: Run port lint for all changed subports
+          portdirs: ${{ steps.portdirs.outputs.portdirs }}
+
+  build:
+    name: ${{ matrix.portname }} ${{ matrix.os }}
+    needs: get-ports
+    timeout-minutes: 0
+    concurrency:
+      cancel-in-progress: true
+      group: ${{ github.ref }}/${{ matrix.os }}/${{ matrix.portname }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15, macos-26]
+        portname: ${{ fromJSON(needs.get-ports.outputs.ports) }}
+
+    steps:
+      - name: Checkout ports
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 64
+          path: ports
+          show-progress: false
+      - name: Checkout mpbb
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          repository: macports/mpbb
+          path: mpbb
+          show-progress: false
+      - name: Set checkout permissions
+        run: |
+            echo "/opt/mports/bin" >> $GITHUB_PATH
+            echo "${PWD}/mpbb" >> $GITHUB_PATH
+            echo "/opt/local/bin" >> $GITHUB_PATH
+            echo "/opt/local/sbin" >> $GITHUB_PATH
+
+            chmod -R a+rX ./ports
+            CUR_DIR="$(dirname "$(realpath ./ports)")"
+            while [ -n "$CUR_DIR" -a "$CUR_DIR" != "/" ]; do
+                sudo chmod a+rx "$CUR_DIR"
+                CUR_DIR="$(dirname "$CUR_DIR")"
+            done
+      - name: Bootstrap MacPorts
+        env:
+            MP_CI_RELEASE: ${{ vars.MP_CI_RELEASE }}
+        run: . ports/.github/workflows/bootstrap.sh mpbb
+      - name: Run port lint
         run: |
           set -eu
 
           echo "#### Lint Results" >> $GITHUB_STEP_SUMMARY
 
           fail=0
-          for subport in $subportlist; do
-            echo "::group::${subport}"
-            path=$(port file "$subport")
-            messagetype="warning"
-            if ! messages=$(port -q lint "$subport" 2>&1); then
-              messagetype="error"
-              fail=1
-            fi
+          echo "::group::${portname}"
+          path=$(port file "$portname")
+          messagetype="warning"
+          if ! messages=$(port -q lint "$portname" 2>&1); then
+            messagetype="error"
+            fail=1
+          fi
 
+          if [ -n "$messages" ]; then
+            echo "$messages"
 
-            if [ -n "$messages" ]; then
-              echo "$messages"
-
-              if [ "$fail" -eq 1 ]; then
-                echo "##### ❌ ${subport}" >> $GITHUB_STEP_SUMMARY
-              else
-                echo "##### ⚠️ ${subport}" >> $GITHUB_STEP_SUMMARY
-              fi
-              printf '```\n%s\n```\n' "$messages" >> $GITHUB_STEP_SUMMARY
-
-              # See https://github.com/actions/toolkit/issues/193#issuecomment-605394935
-              encoded_messages="port lint ${subport}:%0A"
-              encoded_messages+="$(echo "${messages}" | sed -E 's/$/%0A/g' | tr -d '\n')"
-              echo "::${messagetype} file=${path#${PWD}/ports/},line=1,col=1::${encoded_messages}"
+            if [ "$fail" -eq 1 ]; then
+              echo "##### ❌ ${portname}" >> $GITHUB_STEP_SUMMARY
             else
-                echo "##### ✅ ${subport}" >> $GITHUB_STEP_SUMMARY
+              echo "##### ⚠️ ${portname}" >> $GITHUB_STEP_SUMMARY
             fi
-            echo "::endgroup::"
-          done
+            printf '```\n%s\n```\n' "$messages" >> $GITHUB_STEP_SUMMARY
+
+            # See https://github.com/actions/toolkit/issues/193#issuecomment-605394935
+            encoded_messages="port lint ${portname}:%0A"
+            encoded_messages+="$(echo "${messages}" | sed -E 's/$/%0A/g' | tr -d '\n')"
+            echo "::${messagetype} file=${path#${PWD}/ports/},line=1,col=1::${encoded_messages}"
+          else
+              echo "##### ✅ ${portname}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "::endgroup::"
 
           exit "$fail"
         env:
-          subportlist: ${{ steps.subportlist.outputs.subportlist }}
-      - name: Build changed subports
+          portname: ${{ matrix.portname }}
+      - name: Build port
         run: |
           set -eu
 
           echo "#### Build Results" >> $GITHUB_STEP_SUMMARY
 
           fail=0
-          for subport in $subportlist; do
-            workdir="/tmp/mpbb/$subport"
-            mkdir -p "$workdir/logs"
-            echo "##### ${subport}" >> $GITHUB_STEP_SUMMARY
-            touch "$workdir/logs/dependencies-progress.txt"
+          workdir="/tmp/mpbb/$portname"
+          mkdir -p "$workdir/logs"
+          echo "##### ${portname}" >> $GITHUB_STEP_SUMMARY
+          touch "$workdir/logs/dependencies-progress.txt"
 
-            echo "::group::Cleaning up between ports"
-            sudo mpbb --work-dir "$workdir" cleanup
+          echo "::group::Cleaning up between ports"
+          sudo mpbb --work-dir "$workdir" cleanup
+          echo "::endgroup::"
+
+          echo "::group::Installing dependencies for ${portname}"
+          sudo mpbb \
+            --work-dir "$workdir" \
+            install-dependencies \
+            "$portname" >"$workdir/logs/install-dependencies.log" 2>&1 &
+          deps_pid=$!
+
+          tail -f "$workdir/logs/dependencies-progress.txt" 2>/dev/null &
+          tail_pid=$!
+
+          set +e
+          wait "$deps_pid"
+          deps_exit=$?
+          set -e
+
+          kill "$tail_pid" || true
+
+          if [ "$deps_exit" -ne 0 ]; then
             echo "::endgroup::"
+            echo "::error::Failed to install dependencies for ${portname}"
 
-            echo "::group::Installing dependencies for ${subport}"
-            sudo mpbb \
-              --work-dir "$workdir" \
-              install-dependencies \
-              "$subport" >"$workdir/logs/install-dependencies.log" 2>&1 &
-            deps_pid=$!
+            echo "⚠️ Failed to install dependencies" >> $GITHUB_STEP_SUMMARY
 
-            tail -f "$workdir/logs/dependencies-progress.txt" 2>/dev/null &
-            tail_pid=$!
+            fail=1
+            continue
+          fi
+          echo "::endgroup::"
 
-            set +e
-            wait "$deps_pid"
-            deps_exit=$?
-            set -e
+          echo "::group::Installing ${portname}"
 
-            kill "$tail_pid" || true
+          set +e
+          sudo mpbb \
+            --work-dir "$workdir" \
+            install-port \
+            --source \
+            "$portname"
+          install_exit=$?
+          set -e
 
-            if [ "$deps_exit" -ne 0 ]; then
-              echo "::endgroup::"
-              echo "::error::Failed to install dependencies for ${subport}"
-
-              echo "⚠️ Failed to install dependencies" >> $GITHUB_STEP_SUMMARY
-
-              fail=1
-              continue
-            fi
+          if [ "$install_exit" -ne 0 ]; then
             echo "::endgroup::"
+            echo "::error::Failed to install ${portname}"
 
-            echo "::group::Installing ${subport}"
+            echo "❌ Failed to install, see the log for more details" >> $GITHUB_STEP_SUMMARY
 
-            set +e
-            sudo mpbb \
-              --work-dir "$workdir" \
-              install-port \
-              --source \
-              "$subport"
-            install_exit=$?
-            set -e
+            lognum=0
+            for logfile in $(find $(port work "${portname}") -name config.log \
+              -or -name CMakeError.log -or -name meson-log.txt); do
+                  mkdir -p "$workdir/logs/$lognum"
+                  echo "$logfile" > "$workdir/logs/$lognum/path.txt"
+                  cp -c "$logfile" "$workdir/logs/$lognum/"
+                  lognum=$(( $lognum + 1))
+            done
 
-            if [ "$install_exit" -ne 0 ]; then
-              echo "::endgroup::"
-              echo "::error::Failed to install ${subport}"
+            fail=1
+            continue
+          fi
 
-              echo "❌ Failed to install, see the log for more details" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully built" >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
 
-              lognum=0
-              for logfile in $(find $(port work "${subport}") -name config.log \
-                -or -name CMakeError.log -or -name meson-log.txt); do
-                    mkdir -p "$workdir/logs/$lognum"
-                    echo "$logfile" > "$workdir/logs/$lognum/path.txt"
-                    cp -c "$logfile" "$workdir/logs/$lognum/"
-                    lognum=$(( $lognum + 1))
-              done
+          echo "::group::Testing ${portname}"
 
-              fail=1
-              continue
-            fi
+          test_fail=0
+          set +e
+          sudo mpbb \
+            --work-dir "$workdir" \
+            test-port \
+            --builtin-only \
+            "$portname"
+          test_exit=$?
+          set -e
 
-            echo "✅ Successfully built" >> $GITHUB_STEP_SUMMARY
+          if [ "$test_exit" -ne 0 ]; then
             echo "::endgroup::"
+            echo "::error::Tests failed for ${portname}"
 
-            echo "::group::Testing ${subport}"
+            echo "❌ Tests failed, see the log for more details" >> $GITHUB_STEP_SUMMARY
 
-            test_fail=0
-            set +e
-            sudo mpbb \
-              --work-dir "$workdir" \
-              test-port \
-              --builtin-only \
-              "$subport"
-            test_exit=$?
-            set -e
+            # Not setting fail=1 as a 100% passing test suite is not considered
+            # essential to merge a PR.
+            test_fail=1
+          fi
 
-            if [ "$test_exit" -ne 0 ]; then
-              echo "::endgroup::"
-              echo "::error::Tests failed for ${subport}"
+          test_msgs=$(port log --phase test --level warn "$portname")
 
-              echo "❌ Tests failed, see the log for more details" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$test_msgs" ]; then
+            echo "$test_msgs"
+            echo "⚠️ Test warnings" >> $GITHUB_STEP_SUMMARY
 
-              # Not setting fail=1 as a 100% passing test suite is not considered
-              # essential to merge a PR.
-              test_fail=1
-            fi
+            printf '```\n%s\n```\n' "$test_msgs" >> $GITHUB_STEP_SUMMARY
 
-            test_msgs=$(port log --phase test --level warn "$subport")
+            path=$(port file "$portname")
+            # See https://github.com/actions/toolkit/issues/193#issuecomment-605394935
+            encoded_messages="port test ${portname}:%0A"
+            encoded_messages+="$(echo "${test_msgs}" | sed -E 's/$/%0A/g' | tr -d '\n')"
+            echo "::warning file=${path#${PWD}/ports/},line=1,col=1::${encoded_messages}"
+          elif [ $test_fail -eq 0 ]; then
+               echo "✅ Successfully tested" >> $GITHUB_STEP_SUMMARY
+          fi
 
-            if [ -n "$test_msgs" ]; then
-              echo "$test_msgs"
-              echo "⚠️ Test warnings" >> $GITHUB_STEP_SUMMARY
-
-              printf '```\n%s\n```\n' "$test_msgs" >> $GITHUB_STEP_SUMMARY
-
-              path=$(port file "$subport")
-              # See https://github.com/actions/toolkit/issues/193#issuecomment-605394935
-              encoded_messages="port test ${subport}:%0A"
-              encoded_messages+="$(echo "${test_msgs}" | sed -E 's/$/%0A/g' | tr -d '\n')"
-              echo "::warning file=${path#${PWD}/ports/},line=1,col=1::${encoded_messages}"
-            elif [ $test_fail -eq 0 ]; then
-                 echo "✅ Successfully tested" >> $GITHUB_STEP_SUMMARY
-            fi
-
-            echo "::endgroup::"
-
-          done
+          echo "::endgroup::"
 
           exit "$fail"
         env:
-          subportlist: ${{ steps.subportlist.outputs.subportlist }}
+          portname: ${{ matrix.portname }}
       - name: Make logfiles readable
         if: always()
         run: |
@@ -281,5 +315,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: logs-${{ matrix.os }}
+          name: logs-${{ matrix.os }}-${{ matrix.portname }}
           path: /tmp/mpbb/*/logs
